@@ -1,0 +1,740 @@
+---
+title: "Group Assignment 2"
+author: 
+
+
+date: last-modified
+format:
+  html:
+    toc: true
+    self-contained: true
+    code-fold: true
+    df-print: kable
+---
+
+```{r, include=FALSE}
+#| label: R packages
+#| echo: false
+#| warning: false
+#| message: false
+
+rm(list = ls())
+
+library(dplyr)
+library(readxl)
+library(haven)
+library(tidyr)
+library(ggplot2)
+library(tableone)
+library(survey)
+
+```
+
+# 1.0 Cleaning the data
+Within this research, we will give an answer to the following research question: 
+“What is the difference in family relationship quality, rated on a scale from 1 to 5,
+among adults aged 16 to 40 with living biological parents, between those who receive
+annual valuable items or a sum of money gifts from their biological parents and those
+who do not receive any valuable items or a sum of money from their biological parents?” (ACE question)
+
+Target population: Adolescents from the age of 16-40 (in 2020), for whom both their biological parents are still alive (during the whole research period).
+
+Exposure regimes: {0,0} versus {1,1}  1 = Received valuable items/money gifts from parents, 0 = did not receive valuable items/money gifts from parents.
+
+Outcome: How would you generally describe the relationship with your family? (on a scale from 1-5).
+
+Time interval: 1 year. Where t0 = 2020 and t3 = 2023.
+
+
+
+We will start by cleaning the dataset, that we collected via LISS.
+
+```{r}
+#Reading in the datafiles
+
+# data t0
+data_t0 <- read_dta("cf20m_EN_1.0p.dta")
+
+# data t1
+data_t1 <- read.csv('cf21n_EN_1.0p.csv', sep = ';')
+
+# data t2
+data_t2 <- read.csv('cf22o_EN_1.0p.csv', sep = ';')
+
+# data t3
+data_t3 <- read.csv('cf23p_EN_1.0p.csv', sep = ';')
+```
+
+```{r}
+# check X
+table(data_t0$cf20m139)
+table(data_t1$cf21n139)
+table(data_t2$cf22o139)
+table(data_t3$cf23p139)
+```
+Within these tables we see that there are enough people in both groups! Therefore,
+we can continue.
+
+Next, we will filter the data in t0 (assessing eligibility). The target population 
+for our research question has the following characteristics:
+
+1) adolescents from 16-40 yrs (age question 004)
+2) both parents are still alive (question 007 and 011)
+
+Furthermore, we have to make sure that the dataset that we use do not include 
+empty answers. We also applied the filtering in t1, t2 and t3 since we want to exclude
+people where one or both parents has died during the observations.
+
+The outcome variable in our research is the following (question 526):
+How would you describe the relationship with your family?
+
+1 - very bad
+
+2 - bad
+
+3 - not good and not bad
+
+4 - good
+
+5 - very good
+
+99 - I don't have family (anymore)
+
+As you can see, the answer '99' is not appropriate in our research. Therefore, we
+will also filter out answer 99
+
+```{r}
+# t0
+data_t0 <- data_t0[which(data_t0$cf20m004 > 16 & data_t0$cf20m004 < 41 &
+                data_t0$cf20m007 == 1 & data_t0$cf20m011 == 1 &
+                  data_t0$cf20m526 != 99),]
+
+# t1
+data_t1 <- data_t1[which(data_t1$cf21n004 > 17 & data_t1$cf21n004 < 42 &
+                    data_t1$cf21n007 == 1 & data_t1$cf21n011 == 1),]
+
+# t2
+data_t2 <- data_t2[which(data_t2$cf22o004 > 18 & data_t2$cf22o004 < 43 &
+             data_t2$cf22o007 == 1 & data_t2$cf22o011 == 1),]
+
+# t3
+data_t3 <- data_t3[which(data_t3$cf23p004 > 19 & data_t3$cf23p004 < 44 &
+             data_t3$cf23p007 == 1 & data_t3$cf23p011 == 1 &
+               data_t3$cf23p526 != 99),]
+
+# check answers of Y
+table(data_t0$cf20m526)
+table(data_t1$cf21n526)
+table(data_t2$cf22o526)
+table(data_t3$cf23p526)
+
+# check X
+table(data_t0$cf20m139)
+table(data_t1$cf21n139)
+table(data_t2$cf22o139)
+```
+
+Next, we will subset the data such that only the relevant variables will be included
+The following variables will be included:
+
+Y: question 526 - How would you describe the relationship with your family?
+
+X: question 139 - Did you get valuable items or a sum of money? 1 = yes, 2 = no
+
+Covariate baseline: question 004 - age 
+
+Time varying covariates: question 020 & question 022 - How often did you see your 
+father/mother in the past 12 months?
+
+```{r}
+data_t0 <- data_t0[, colnames(data_t0) %in% c('nomem_encr', 'cf20m526', 'cf20m139', 'cf20m004', 
+                                   'cf20m020', 'cf20m022')]
+
+data_t1 <- data_t1[, colnames(data_t1) %in% c('nomem_encr', 'cf21n526', 'cf21n139', 'cf21n004', 
+                                              'cf21n020', 'cf21n022')]
+
+data_t2 <- data_t2[, colnames(data_t2) %in% c('nomem_encr', 'cf22o526', 'cf22o139', 'cf22o004', 
+                                              'cf22o020', 'cf22o022')]
+
+data_t3 <- data_t3[, colnames(data_t3) %in% c('nomem_encr', 'cf23p526', 'cf23p139', 'cf23p004', 
+                                              'cf23p020', 'cf23p022')]
+
+# rename columns
+colnames(data_t0)
+colnames(data_t0) <- c("User_id", "age_t0", "Y_t0", "cov_father_t0", "cov_mother_t0", "X_t0")
+colnames(data_t1) <- c("User_id", "age_t1", "Y_t1", "cov_father_t1", "cov_mother_t1", "X_t1")
+colnames(data_t2) <- c("User_id", "age_t2", "Y_t2", "cov_father_t2", "cov_mother_t2", "X_t2")
+colnames(data_t3) <- c("User_id", "age_t3", "Y_t3", "cov_father_t3", "cov_mother_t3", "X_t3")
+
+# drop na values
+data_t0 <- data_t0 %>% drop_na()
+data_t1 <- data_t1 %>% drop_na()
+data_t2 <- data_t2 %>% drop_na()
+data_t3 <- data_t3 %>% drop_na()
+
+# merge dataframes (only keep persons who answered the questions in all time stamps)
+data_all <- data_t0 %>%
+  inner_join(data_t1, by = "User_id") %>%
+  inner_join(data_t2, by = "User_id") %>%
+  inner_join(data_t3, by = "User_id")
+
+# Check X
+table(data_all$X_t0)
+table(data_all$X_t1)
+table(data_all$X_t2)
+```
+
+We will transform our exposure variable to a dummy variable 0-1 
+```{r}
+data_all <- data_all %>%
+  mutate(X_t0 = ifelse(X_t0 == 2, 0, 1),
+         X_t1 = ifelse(X_t1 == 2, 0, 1),
+         X_t2 = ifelse(X_t2 == 2, 0, 1))
+
+data <- data_all
+
+# Again check X to see if we have enough data for both groups
+table(data_all$X_t0)
+table(data_all$X_t1)
+table(data_all$X_t2)
+```
+
+# 2.0 Propensity scores and SMD scores
+
+In this section we will calculate the propensity scores for the respondents. 
+The propensity score is the probability of being treated and it will be made by 
+means of a logistic regression.
+
+```{r}
+# calculate propensity scores for t1 and t2
+# depending on x_ti we need to include different variables (see presentation)
+log_model_x1 <- glm(X_t1 ~ age_t0, data  = data, family = binomial())
+log_model_x2 <- glm(X_t2 ~ age_t0 + cov_father_t1 + cov_mother_t1, data  = data, family = binomial())
+
+propensity_x1 <- predict(log_model_x1, type = 'response')
+propensity_x2 <- predict(log_model_x2, type = 'response')
+
+data$propensity_x1 <- propensity_x1
+data$propensity_x2 <- propensity_x2
+
+data.frame(head(data))
+```
+
+We will then check the positivity assumption to see if the histograms overlap.
+```{r}
+data |>
+  ggplot(aes(x = propensity_x1, fill = as.factor(X_t1))) +
+  geom_histogram(alpha = 0.4, color = 'black', position = 'identity') +
+  scale_fill_manual(values = c('blue', 'red')) +  
+  ggtitle('Propensity score per treatment group in timestamp t1 (2021)') +
+  xlab('Propensity score') +
+  labs(fill = "X_t1") 
+```
+As seen in the plot, they overlap quite well. We will do the same for the second
+timepoint
+
+```{r}
+data |>
+  ggplot(aes(x = propensity_x2, fill = as.factor(X_t2))) +
+  geom_histogram(alpha = 0.4, color = 'black', position = 'identity') +
+  scale_fill_manual(values = c('blue', 'red')) + 
+  ggtitle('Propensity score per treatment group in timestamp t2 (2022)') +
+  xlab('Propensity score') +
+  labs(fill = "X_t2") 
+```
+Here, the positivity assumption is partly violated. there is no overlap on the edges. 
+This can bias our estimation.
+
+Although the assumption is partly violiated, we will continue.
+Next, the SMD values will be calculated to see if there is any imbalance in our dataset.
+```{r}
+table1 <- CreateTableOne(vars=c("age_t0"),
+                         strata = "X_t1",
+                         data=data, 
+                         test=FALSE)
+
+table2 <- CreateTableOne(vars=c("age_t0", "cov_father_t1", "cov_mother_t1"),
+                         strata = "X_t2",
+                         data=data, 
+                         test=FALSE)
+
+print(table1, smd = TRUE)
+print(table2, smd = TRUE)
+
+# Filter the data to include only Unadjusted
+data_t1_unadjusted <- data.frame(
+  Variable = c("T1_Age_0"),
+  SMD = c(0.755)
+)
+
+# Plot for T1_Age_0
+ggplot(data_t1_unadjusted, aes(x = SMD, y = Variable)) +
+  geom_point(color = "red", size = 3) +
+  geom_vline(xintercept = 0.1, linetype = "dashed", color = "black") +
+  scale_x_continuous(limits = c(0, 1), breaks = seq(0, 1, by = 0.1)) +
+  labs(
+    title = "Plot: Absolute Mean Differences for T1_Age_0 (Unadjusted)",
+    subtitle = "SMD for Unadjusted stratification",
+    x = "Absolute Mean Differences (SMD)",
+    y = "Variables"
+  ) +
+  theme_minimal() +
+  theme(
+    panel.grid.major.y = element_line(color = "gray", linetype = "dotted"),
+    axis.text.x = element_text(size = 10),
+    axis.text.y = element_text(size = 10)
+  )
+
+# Filter the data to include only Unadjusted
+data_t2_unadjusted <- data.frame(
+  Variable = c("T2_Age_0", "T2_father_1", "T2_Mother_1"),
+  SMD = c(0.474, 0.539, 0.319)
+)
+
+# Create the data for the connecting lines
+lines_data_unadjusted <- data.frame(
+  x_start = c(0.474, 0.539),
+  x_end = c(0.539, 0.319),
+  y_start = c("T2_Age_0", "T2_father_1"),
+  y_end = c("T2_father_1", "T2_Mother_1")
+)
+
+# Set the correct order for the variables
+data_t2_unadjusted$Variable <- factor(data_t2_unadjusted$Variable, levels = rev(c("T2_Age_0", "T2_father_1", "T2_Mother_1")))
+lines_data_unadjusted$y_start <- factor(lines_data_unadjusted$y_start, levels = rev(c("T2_Age_0", "T2_father_1", "T2_Mother_1")))
+lines_data_unadjusted$y_end <- factor(lines_data_unadjusted$y_end, levels = rev(c("T2_Age_0", "T2_father_1", "T2_Mother_1")))
+
+# Plot for T2 variables with connecting lines
+ggplot() +
+  geom_point(data = data_t2_unadjusted, aes(x = SMD, y = Variable), color = "red", size = 3) +
+  geom_segment(data = lines_data_unadjusted, 
+               aes(x = x_start, xend = x_end, y = y_start, yend = y_end), 
+               color = "red", size = 1) +
+  geom_vline(xintercept = 0.1, linetype = "dashed", color = "black") +
+  scale_x_continuous(limits = c(0, 1), breaks = seq(0, 1, by = 0.1)) +
+  labs(
+    title = "Plot: Absolute Mean Differences for T2 Variables (Unadjusted)",
+    subtitle = "SMD for Unadjusted stratification with connections",
+    x = "Absolute Mean Differences (SMD)",
+    y = "Variables"
+  ) +
+  theme_minimal() +
+  theme(
+    panel.grid.major.y = element_line(color = "gray", linetype = "dotted"),
+    axis.text.x = element_text(size = 10),
+    axis.text.y = element_text(size = 10)
+  )
+```
+As shown in the tables and the plots, all the SMD values are above 0.1 so there is an imbalance
+in the dataset. We will subsequently use IPW, such that we will mimick an RCT.
+
+# 3.0 Inverse Probability Weighting
+
+To mimick an RCT, the IPW method will be used to adjust for the covariates. To account 
+for the imbalance, we create a pseudo-population where each case is weighted by the 
+inverse probability of received treatment. The probability of received treatment for 
+those who were treated is equal to the propensity score. The probability of received 
+treatment for those who were not treated is 1 minus the propensity score.
+The IPW is really sensitive to outliers, so we have to take this into account!
+
+```{r}
+# Calculate IPW for X_t1 and X_t2
+data <- data |>
+  mutate(IPW_X1 = (X_t1 * (1 / propensity_x1)) + ((1 - X_t1) * (1 / propensity_x1)),
+         IPW_X2 = (X_t2 * (1 / propensity_x2)) + ((1 - X_t2) * (1 / propensity_x2))
+  )
+
+head(data.frame(data))
+
+
+# calculate overall IPW
+data <- data |>
+  mutate(IPW = IPW_X1 * IPW_X2)
+
+# inspect IPW weights
+summary(data$IPW)
+
+data %>% ggplot(aes(x = IPW)) +
+  geom_histogram()
+
+# we see that there are a few persons who have relative extremely high weights.
+# we will trimm the dataset and exclude those persons because these persons can
+# become dependent and may determine the outcome of our study.
+
+# keep weights < 100
+data <- data[which(data$IPW < 100),]
+
+# inspect weights again
+data %>% ggplot(aes(x = IPW)) +
+  geom_histogram()
+
+# keep weights < 75
+data <- data[which(data$IPW < 75),]
+
+# inspect weights again
+data %>% ggplot(aes(x = IPW)) +
+  geom_histogram()
+```
+
+We will look at the SMD values again with calculated final weights
+
+```{r}
+weighted_data <-svydesign(ids = ~ 1, data = data, weights = ~ IPW)
+
+weighted_table_t1 <- svyCreateTableOne(vars=c("age_t0"), 
+                                       strata = "X_t1", 
+                                       data = weighted_data, test = FALSE)
+
+weighted_table_t2 <- svyCreateTableOne(vars=c("age_t0", "cov_father_t1", "cov_mother_t1"), 
+                                       strata = "X_t2", 
+                                       data = weighted_data, test = FALSE)
+
+# compare new weights with old weights:
+
+# x_t1:
+print(table1, smd = TRUE)
+print(weighted_table_t1, smd = TRUE)
+
+# x_t2:
+print(table2, smd = TRUE)
+print(weighted_table_t2, smd = TRUE)
+```
+By using the IPW method, the SMD values did decrease! However, not all variables are below 0.1.
+
+# 4.0 Estimating ACE 
+We will now estimate the ACE. We have to keep in mind that the data is not completely
+balanced and is thus probably partly biased.
+
+```{r}
+# model including the final weights (see MSM model from slides)
+out3 <- glm(Y_t3 ~ X_t1 + X_t2 + X_t1*X_t2 + age_t0, 
+            weights = IPW, data = data)
+
+summary(out3) 
+# looks like x_t1 has more effect on the outcome than x_t2.
+# age has a negative relation to Y
+
+# make dummy dataset so that we can estimate the potential outcomes Y^{0,0} and Y^{1,1} for everyone
+data_never_exposed <- data %>%
+  mutate(X_t1 = 0, X_t2 = 0) %>%
+  mutate(X_t1_X_t2 = X_t1 * X_t2)
+
+data_always_exposed <- data %>%
+  mutate(X_t1 = 1, X_t2 = 1) %>%
+  mutate(X_t1_X_t2 = X_t1 * X_t2)
+
+pr_never_exposed <- predict(out3, newdata = data_never_exposed, type = "response")
+pr_always_exposed <- predict(out3, newdata = data_always_exposed, type = "response")
+
+# average "satisfaction/happiness" of a person's family relationship
+# from people who has received something valuable in both years from their parents 
+# and people who didn't receive something valuable in both years from their parents
+mean(pr_never_exposed) 
+mean(pr_always_exposed)
+
+# Average causal effect:
+ACE <- mean(pr_always_exposed) - mean(pr_never_exposed)
+ACE
+
+# test if this difference is significant:
+t.test(pr_always_exposed, pr_never_exposed)
+# it's significant.
+```
+Since the difference between the respondents that were always exposed versus the
+respondents that were never exposed is significant, we can conclude that people who
+receive valuable items (two years in a row) from their parents have in general a
+slightly better relationship with their family.
+
+# 5.0 Trying some improvements
+
+## 5.1 Calculating propensity scores with RF
+We know that the result is partly biased since the positivity assumption is partly
+violated. The dataset is not yet completely in balance, but that could also be because
+of the chosen method for calculation the propensity score. We will therefor now 
+estimate the propensity using a random forest model.
+
+```{r}
+# calculate propensity score with random forest instead of logistic regression
+library(randomForest)
+rf_X_t1 <- randomForest(X_t1 ~ age_t0 , data = data, proximity=TRUE)
+rf_X_t2 <- randomForest(X_t1 ~ age_t0 +  cov_father_t1 + cov_mother_t1, data = data, proximity=TRUE)
+
+data$propensity_x1_rf <- predict(rf_X_t1)
+data$propensity_x2_rf <- predict(rf_X_t2)
+
+data.frame(head(data))
+
+# positivity assumption check:
+data |>
+  ggplot(aes(x = propensity_x1_rf, fill = as.factor(X_t1))) +
+  geom_histogram(alpha = 0.4, color = 'black', position = 'identity') +
+  scale_fill_manual(values = c('blue', 'red')) +  # Custom colors
+  ggtitle('Propensity score (rf) per treatment group in timestamp t2 (2021)') +
+  xlab('Propensity score') +
+  labs(fill = "X_t1") 
+
+data |>
+  ggplot(aes(x = propensity_x2_rf, fill = as.factor(X_t2))) +
+  geom_histogram(alpha = 0.4, color = 'black', position = 'identity') +
+  scale_fill_manual(values = c('blue', 'red')) +  # Custom colors
+  ggtitle('Propensity score (rf) per treatment group in timestamp t2 (2022)') +
+  xlab('Propensity score') +
+  labs(fill = "X_t2") 
+
+
+
+```
+
+In the first plot you can see that there are a few spots where there is no overlap. In 
+the second plot the two groups overlapp really well, only a few bars at the edges do not overlap.
+The positivity assumption violated. Especially for timestamp 1 (2021). <br> <br>
+
+Important to note is that with a random forest, you will get a slightly different propensity score every time
+you run the script (since the model slightly differs every time you run it). The overlap (and ACE estimation) could slightly differ when running the script again.
+
+## 5.2 Inverse Probability Weighting
+```{r}
+# Calculate IPW for X_t1 and X_t2
+data <- data |>
+  mutate(IPW_X1_rf = (X_t1 * (1 / propensity_x1_rf)) + ((1 - X_t1) * (1 / propensity_x1_rf)),
+         IPW_X2_rf = (X_t2 * (1 / propensity_x2_rf)) + ((1 - X_t2) * (1 / propensity_x2_rf))
+  )
+
+# calculate overall IPW
+data <- data |>
+  mutate(IPW_rf = IPW_X1_rf * IPW_X2_rf)
+
+# inspect IPW weights
+summary(data$IPW_rf)
+
+data %>% ggplot(aes(x = IPW_rf)) +
+  geom_histogram()
+
+# same story as before, we'll trim the dataset
+
+# keep weights < 200
+data <- data[which(data$IPW_rf < 200),]
+
+# inspect weights again
+data %>% ggplot(aes(x = IPW_rf)) +
+  geom_histogram()
+
+# keep weights < 100
+data <- data[which(data$IPW_rf < 100),]
+
+# inspect weights again
+data %>% ggplot(aes(x = IPW_rf)) +
+  geom_histogram()
+```
+
+There is still a long tail, but we can't keep trimming, we'll eventually 
+not have enough data left, so we work with this trimmed dataset.
+
+## 5.3 SMD Values
+```{r}
+weighted_data_rf <-svydesign(ids = ~ 1, data = data, weights = ~ IPW_rf)
+
+weighted_table_t1_rf <- svyCreateTableOne(vars=c("age_t0"), 
+                                       strata = "X_t1", 
+                                       data = weighted_data_rf, test = FALSE)
+
+weighted_table_t2_rf <- svyCreateTableOne(vars=c("age_t0", "cov_father_t1", "cov_mother_t1"), 
+                                       strata = "X_t2", 
+                                       data = weighted_data_rf, test = FALSE)
+
+# compare new weights with old weights:
+
+# x_t1:
+print(table1, smd = TRUE)
+print(weighted_table_t1_rf, smd = TRUE)
+
+# x_t2:
+print(table2, smd = TRUE)
+print(weighted_table_t2_rf, smd = TRUE)
+```
+Unfortunately, there is still imbalance in the dataset. 
+
+For both methods (logistic regression & random forest) the 
+positivity assumption is violated (although it's for different time waves).
+
+## 5.4 Estimating ACE
+```{r}
+# Regression model using new IPW weights
+out3_rf <- glm(Y_t3 ~ X_t1 + X_t2 + X_t1*X_t2 + age_t0, 
+            weights = IPW_rf, data = data)
+
+# compare models:
+summary(out3_rf) 
+summary(out3)
+```
+The intercept has decreased compared to the first model. But the slopes has increased 
+for all variables x_t1, x_t2 and age_t0 (and the interaction between X_t1 and X_t2), 
+they've more effect than before.
+
+ACE estimation:
+
+```{r}
+# estimate the potential outcomes Y^{0,0} and Y^{1,1} for everyone
+pr_never_exposed_rf <- predict(out3_rf, newdata = data_never_exposed, type = "response")
+pr_always_exposed_rf <- predict(out3_rf, newdata = data_always_exposed, type = "response")
+
+# average "satisfaction/happiness" of a person's family relationship
+# from people who has received something valuable in both years from their parents 
+# and people who didn't receive something valuable in both years from their parents
+mean(pr_never_exposed_rf) 
+mean(pr_always_exposed_rf)
+
+# Average causal effect:
+ACE_rf <- mean(pr_always_exposed_rf) - mean(pr_never_exposed_rf)
+print(ACE_rf)
+
+# test if this difference is significant:
+t.test(pr_always_exposed_rf, pr_never_exposed_rf)
+# it's significant.
+```
+Both ACE's have the same conclusion (> 0), but let's compare the two ACE outcomes:
+```{r}
+
+print(ACE)
+print(ACE_rf)
+```
+The random forest method for calculating the propensity scores (and weights) are 
+almost exactly the same as using logistic regression, but looking at the SMD values, the dataset is less in balance.
+Therefore we can conclude that random forest did not improved our results.
+
+
+
+# 6.0 Conclusion
+
+Receiving valuable items from your parents will intend to increase the relationship
+with your family. Although the impact is relatively small, since it's only ~ 0.15.
+
+## 6.1 Which propensity score method should we choose?
+Based on the assumptions, the two methods have both violated the positivity assumption.
+The other two assumptions - exchangeability and consistency - are not violated 
+(although you could discuss the sequential consistency assumption for both methods. 
+See slides in PowerPoint presentation). 
+Both models did have the same conclusion. 
+
+Let's compare the SMD values:
+```{r}
+# t1:
+print(table1, smd = TRUE)
+print(weighted_table_t1, smd = TRUE)
+print(weighted_table_t1_rf, smd = TRUE)
+
+# t2:
+print(table2, smd = TRUE)
+print(weighted_table_t2, smd = TRUE)
+print(weighted_table_t2_rf, smd = TRUE)
+
+# The plots:
+
+# Data for points (T1_Age_0 only)
+data_t1 <- data.frame(
+  Variable = c("T1_Age_0"),
+  Unadjusted = c(0.755),
+  Weighted = c(0.400),
+  RF_Weighted = c(0.607)
+)
+
+# Set variables and methods in the correct order
+data_t1_long <- tidyr::pivot_longer(data_t1, cols = c("Unadjusted", "Weighted", "RF_Weighted"),
+                                    names_to = "Method", values_to = "SMD")
+data_t1_long$Variable <- factor(data_t1_long$Variable, levels = c("T1_Age_0"))
+data_t1_long$Method <- factor(data_t1_long$Method, levels = c("Unadjusted", "Weighted", "RF_Weighted"))
+
+# Custom colors
+custom_colors <- c("Unadjusted" = "red", "Weighted" = "blue", "RF_Weighted" = "green")
+
+# Plot for T1_Age_0
+ggplot() +
+  geom_point(data = data_t1_long, aes(x = SMD, y = Variable, color = Method), size = 3) +
+  geom_vline(xintercept = 0.1, linetype = "dashed", color = "black") +
+  scale_x_continuous(limits = c(0, 1), breaks = seq(0, 1, by = 0.1)) +
+  scale_color_manual(values = custom_colors) +
+  labs(
+    title = "Plot: Absolute Mean Differences for T1_Age_0",
+    subtitle = "SMDs for different stratifications",
+    x = "Absolute Mean Differences (SMD)",
+    y = "Variables",
+    color = "Method"
+  ) +
+  theme_minimal() +
+  theme(
+    panel.grid.major.y = element_line(color = "gray", linetype = "dotted"),
+    axis.text.x = element_text(size = 10),
+    axis.text.y = element_text(size = 10)
+  )
+
+# Data for points (without T1_Age_0)
+data_t2 <- data.frame(
+  Variable = c("T2_Age_0", "T2_father_1", "T2_Mother_1"),
+  Unadjusted = c(0.474, 0.539, 0.319),
+  Weighted = c(0.008, 0.312, 0.006),
+  RF_Weighted = c(0.181, 0.363, 0.079)
+)
+
+# Data for lines
+lines_data <- data.frame(
+  x_start = c(0.474, 0.539, 0.008, 0.312, 0.181, 0.363),
+  x_end = c(0.539, 0.319, 0.312, 0.006, 0.363, 0.079),
+  y_start = c("T2_Age_0", "T2_father_1", "T2_Age_0", "T2_father_1", "T2_Age_0", "T2_father_1"),
+  y_end = c("T2_father_1", "T2_Mother_1", "T2_father_1", "T2_Mother_1", "T2_father_1", "T2_Mother_1"),
+  Method = rep(c("Unadjusted", "Weighted", "RF_Weighted"), each = 2)
+)
+
+# Set variables and methods in the correct order
+data_t2_long <- tidyr::pivot_longer(data_t2, cols = c("Unadjusted", "Weighted", "RF_Weighted"),
+                                    names_to = "Method", values_to = "SMD")
+data_t2_long$Variable <- factor(data_t2_long$Variable, levels = rev(c("T2_Age_0", "T2_father_1", "T2_Mother_1")))
+data_t2_long$Method <- factor(data_t2_long$Method, levels = c("Unadjusted", "Weighted", "RF_Weighted"))
+lines_data$Method <- factor(lines_data$Method, levels = c("Unadjusted", "Weighted", "RF_Weighted"))
+
+# Custom colors
+custom_colors <- c("Unadjusted" = "red", "Weighted" = "blue", "RF_Weighted" = "green")
+
+# Plot for T2_Age_0, T2_father_1, and T2_Mother_1
+ggplot() +
+  geom_point(data = data_t2_long, aes(x = SMD, y = Variable, color = Method), size = 3) +
+  geom_segment(data = lines_data, 
+               aes(x = x_start, xend = x_end, y = y_start, yend = y_end, color = Method), size = 1) +
+  geom_vline(xintercept = 0.1, linetype = "dashed", color = "black") +
+  scale_x_continuous(limits = c(0, 1), breaks = seq(0, 1, by = 0.1)) +
+  scale_color_manual(values = custom_colors) +
+  labs(
+    title = "Plot: Absolute Mean Differences for T2 Variables",
+    subtitle = "SMDs for different stratifications",
+    x = "Absolute Mean Differences (SMD)",
+    y = "Variables",
+    color = "Method"
+  ) +
+  theme_minimal() +
+  theme(
+    panel.grid.major.y = element_line(color = "gray", linetype = "dotted"),
+    axis.text.x = element_text(size = 10),
+    axis.text.y = element_text(size = 10)
+  )
+
+```
+For t1, both results end up in imbalance for age. For t2, with logistic regression, 
+the time varying covariate cov_mother_t1 is in balance ánd the baseline covariate 
+age is in balance. This is quite well. The time varying covariate cov_father_t1 
+is however still in imbalance, but that is also the case when using random forest
+for estimating the propensity scores.
+
+Based on these results, we conclude that using logistic regression model for 
+estimating the propensity score leads to better SMD values, which leads to less 
+biased results. Therefore we would use the first model and conclude that receiving
+valuable things from your parents only slightly improves the relationship with your
+family, keeping in mind that this conclusion may be biased through (partly) violating some assumptions.
+ 
+## 6.2 Discussion points
+Violation sequential consistency assumption -> treatment valuable is subjective 
+and maybe there should be made a split between receiving something valuable and
+receiving actual money. 
+
+Violation positivity assumption (theoretically the assumption is satisfied, but 
+looking at the data not everything overlaps well)
+
+Did we trim the weights in the right way or should we have trimmed more or less?
